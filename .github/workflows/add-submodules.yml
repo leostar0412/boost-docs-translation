@@ -51,6 +51,10 @@ jobs:
           }
 
           UPDATES=()
+          # Summary buckets (doc metadata / skips); printed after Step 2.
+          META_MISSING=()
+          NO_DOC_PATHS=()
+          REPO_EXISTS_SKIP=()
 
           WORK_DIR=$(mktemp -d)
           trap 'rm -rf "$WORK_DIR"' EXIT
@@ -76,28 +80,28 @@ jobs:
 
           set_default_branch() {
             gh api --method PATCH "repos/$1/$2" -f "default_branch=$3" \
-              || echo "Warning: set default branch to $3 failed." >&2
+              || { echo "Error: set default branch to $3 failed for $1/$2." >&2; return 1; }
           }
 
           create_new_repo_and_push() {
             local org="$1" sub_name="$2" sub_clone="$3" repo_url="$4" libs_ref="$5"
-            create_repo "$org" "$sub_name"
-            git -C "$sub_clone" init
+            create_repo "$org" "$sub_name" || return 2
+            git -C "$sub_clone" init || return 2
             set_git_bot_config "$sub_clone"
-            git -C "$sub_clone" add -A
-            git -C "$sub_clone" commit -m "Create the original documentation of $libs_ref"
-            git -C "$sub_clone" branch -M "$MASTER_BRANCH"
+            git -C "$sub_clone" add -A || return 2
+            git -C "$sub_clone" commit -m "Create the original documentation of $libs_ref" || return 2
+            git -C "$sub_clone" branch -M "$MASTER_BRANCH" || return 2
             git -C "$sub_clone" remote remove origin 2>/dev/null || true
-            git -C "$sub_clone" remote add origin "$repo_url"
-            git -C "$sub_clone" push -u origin "$MASTER_BRANCH"
-            git -C "$sub_clone" push origin "$MASTER_BRANCH"
+            git -C "$sub_clone" remote add origin "$repo_url" || return 2
+            git -C "$sub_clone" push -u origin "$MASTER_BRANCH" || return 2
+            git -C "$sub_clone" push origin "$MASTER_BRANCH" || return 2
             for lang_code in "${lang_codes_arr[@]}"; do
               local local_br="local-${lang_code}"
-              git -C "$sub_clone" checkout -B "$local_br" "$MASTER_BRANCH"
-              add_create_tag_workflow "$sub_clone"
-              git -C "$sub_clone" push -u origin "$local_br"
+              git -C "$sub_clone" checkout -B "$local_br" "$MASTER_BRANCH" || return 2
+              add_create_tag_workflow "$sub_clone" || return 2
+              git -C "$sub_clone" push -u origin "$local_br" || return 2
             done
-            set_default_branch "$org" "$sub_name" "$MASTER_BRANCH"
+            set_default_branch "$org" "$sub_name" "$MASTER_BRANCH" || return 2
           }
 
           # ── Per-submodule processing ──────────────────────────────────────────
@@ -106,17 +110,22 @@ jobs:
             local sub_name="$1" doc_paths
 
             if repo_exists "$MODULE_ORG" "$sub_name"; then
+              REPO_EXISTS_SKIP+=("$sub_name")
               echo "  Skipping: $MODULE_ORG/$sub_name already exists." >&2; return 1
             fi
 
             doc_paths=$(get_doc_paths "$sub_name" "$LIBS_REF") || {
-              echo "  No libraries.json, skipping." >&2; return 1
+              META_MISSING+=("$sub_name")
+              echo "  No libraries.json." >&2; return 2
             }
-            [[ -z "$doc_paths" ]] && { echo "  No doc paths, skipping." >&2; return 1; }
+            [[ -z "$doc_paths" ]] && {
+              NO_DOC_PATHS+=("$sub_name")
+              echo "  No doc paths in metadata, skipping." >&2; return 1
+            }
 
             local sub_clone="$BOOST_WORK/$sub_name"
             clone_repo "https://github.com/${BOOST_ORG}/${sub_name}.git" \
-              "$LIBS_REF" "$sub_clone" || { echo "  Clone failed." >&2; return 1; }
+              "$LIBS_REF" "$sub_clone" || { echo "  Clone failed." >&2; return 2; }
 
             local -a paths_arr
             mapfile -t paths_arr <<< "$doc_paths"
@@ -169,13 +178,27 @@ jobs:
           }
 
           total=${#submodule_names[@]}
+          submodule_fatal=0
           for i in "${!submodule_names[@]}"; do
             sub="${submodule_names[$i]}"
             echo "[$(( i + 1 ))/$total] $sub ..." >&2
             if process_one_submodule "$sub"; then
               UPDATES+=("$sub")
+            else
+              rc=$?
+              [[ $rc -eq 2 ]] && submodule_fatal=$((submodule_fatal + 1))
             fi
           done
+
+          echo "── Summary: Boost library documentation metadata ──" >&2
+          echo "  Type 1 — Missing or unreadable meta/libraries.json (${#META_MISSING[@]}): $([[ ${#META_MISSING[@]} -eq 0 ]] && echo '(none)' || echo "${META_MISSING[*]}")" >&2
+          echo "  Type 2 — No doc paths in meta/libraries.json (${#NO_DOC_PATHS[@]}): $([[ ${#NO_DOC_PATHS[@]} -eq 0 ]] && echo '(none)' || echo "${NO_DOC_PATHS[*]}")" >&2
+          echo "  Type 3 — Target org repo already exists, skipped (${#REPO_EXISTS_SKIP[@]}): $([[ ${#REPO_EXISTS_SKIP[@]} -eq 0 ]] && echo '(none)' || echo "${REPO_EXISTS_SKIP[*]}")" >&2
+
+          [[ $submodule_fatal -gt 0 ]] && {
+            echo "Error: $submodule_fatal submodule(s) failed with errors." >&2
+            exit 1
+          }
 
           finalize_translations_repo "$TRANS_DIR" "$LIBS_REF"
 

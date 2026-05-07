@@ -103,7 +103,9 @@ ensure_local_branch_in_translations() {
     git -C "$dir" checkout -b "$branch"
     rm -rf "$dir/libs" "$dir/.gitmodules"
     git -C "$dir" rm -rf --cached libs .gitmodules 2>/dev/null || true
-    git -C "$dir" commit -m "Init $branch" 2>/dev/null || true
+    if ! git -C "$dir" diff --cached --quiet; then
+      git -C "$dir" commit -m "Init $branch"
+    fi
     git -C "$dir" push -u origin "$branch"
     echo "  Created branch $branch." >&2
   fi
@@ -126,7 +128,10 @@ update_translations_submodule() {
   local sub_url="https://github.com/${org}/${sub_name}.git"
 
   if submodule_in_gitmodules "$dir" "$sub_path" && [[ -d "$libs_path" ]]; then
-    git -C "$dir" submodule update --init "$sub_path" 2>/dev/null || true
+    if ! git -C "$dir" submodule update --init "$sub_path"; then
+      echo "  submodule update --init failed for $sub_path" >&2
+      return 1
+    fi
     git -C "$dir" config "submodule.${sub_path}.branch" "$branch"
     if ! git -C "$dir" submodule update --remote "$sub_path"; then
       echo "  submodule update --remote failed for $sub_path" >&2; return 1
@@ -143,7 +148,11 @@ update_translations_submodule() {
 commit_and_push_translations_branch() {
   local dir="$1" branch="$2" libs_ref="$3" force="${4:-false}"
   git -C "$dir" status --short
-  git -C "$dir" commit -m "Update libs submodules to $libs_ref" 2>/dev/null || true
+  if git -C "$dir" diff --cached --quiet; then
+    echo "  No staged submodule changes on $branch; skipping commit." >&2
+  else
+    git -C "$dir" commit -m "Update libs submodules to $libs_ref"
+  fi
   if [[ "$force" == "true" ]]; then
     git -C "$dir" push --force origin "$branch"
   else
@@ -164,7 +173,7 @@ sync_translations_branch() {
 finalize_translations_repo() {
   local dir="$1" libs_ref="$2"
   [[ ${#UPDATES[@]} -eq 0 ]] && return
-  git -C "$dir" fetch origin 2>/dev/null || true
+  git -C "$dir" fetch origin
   sync_translations_branch "$dir" "$MASTER_BRANCH" "$libs_ref"
   for lang_code in "${lang_codes_arr[@]}"; do
     sync_translations_branch "$dir" "local-${lang_code}" "$libs_ref" true

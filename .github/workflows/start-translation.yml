@@ -77,6 +77,10 @@ jobs:
 
           UPDATES=()
           declare -A add_or_update
+          # Summary buckets (doc metadata / missing lib repo); printed after Step 2.
+          META_MISSING=()
+          NO_DOC_PATHS=()
+          ORG_REPO_MISSING=()
 
           WORK_DIR=$(mktemp -d)
           trap 'rm -rf "$WORK_DIR"' EXIT
@@ -113,23 +117,25 @@ jobs:
           # Wipe dest_repo (except .git), copy pruned source, commit, push master only.
           sync_repo_master() {
             local dest_repo="$1" sub_clone="$2" libs_ref="$3"
-            find "$dest_repo" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-            cp -r "$sub_clone/." "$dest_repo/"
+            find "$dest_repo" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} + || return 2
+            cp -r "$sub_clone/." "$dest_repo/" || return 2
             set_git_bot_config "$dest_repo"
-            git -C "$dest_repo" add -A
-            git -C "$dest_repo" commit -m "Update the original documentation of $libs_ref" 2>/dev/null || true
-            git -C "$dest_repo" push origin "$MASTER_BRANCH"
+            git -C "$dest_repo" add -A || return 2
+            if ! git -C "$dest_repo" diff --cached --quiet; then
+              git -C "$dest_repo" commit -m "Update the original documentation of $libs_ref" || return 2
+            fi
+            git -C "$dest_repo" push origin "$MASTER_BRANCH" || return 2
           }
 
           # Merge master into local-{lang_code} and push.
           update_local_merge_from_master() {
             local repo_dir="$1" lang_code="$2"
             local local_br="local-${lang_code}"
-            git -C "$repo_dir" fetch origin "$MASTER_BRANCH"
-            git -C "$repo_dir" fetch origin "$local_br" 2>/dev/null || true
-            git -C "$repo_dir" checkout -B "$local_br" "origin/$local_br"
-            git -C "$repo_dir" merge "origin/$MASTER_BRANCH"
-            git -C "$repo_dir" push origin "${local_br}:${local_br}"
+            git -C "$repo_dir" fetch origin "$MASTER_BRANCH" || return 2
+            git -C "$repo_dir" fetch origin "$local_br" || return 2
+            git -C "$repo_dir" checkout -B "$local_br" "origin/$local_br" || return 2
+            git -C "$repo_dir" merge "origin/$MASTER_BRANCH" || return 2
+            git -C "$repo_dir" push origin "${local_br}:${local_br}" || return 2
           }
 
           # Create local-{lang_code} in a CppDigest lib repo from master, with create-tag.yml.
@@ -141,15 +147,15 @@ jobs:
               return 0
             fi
             echo "  Creating branch $local_br in $sub_name from $MASTER_BRANCH..." >&2
-            git -C "$dest_repo" fetch origin "$MASTER_BRANCH"
-            git -C "$dest_repo" checkout -B "$local_br" "origin/$MASTER_BRANCH"
-            add_create_tag_workflow "$dest_repo"
-            git -C "$dest_repo" push -u origin "$local_br"
+            git -C "$dest_repo" fetch origin "$MASTER_BRANCH" || return 2
+            git -C "$dest_repo" checkout -B "$local_br" "origin/$MASTER_BRANCH" || return 2
+            add_create_tag_workflow "$dest_repo" || return 2
+            git -C "$dest_repo" push -u origin "$local_br" || return 2
             echo "  Created branch $local_br." >&2
           }
 
           # Handle local-{lang_code} branch in a CppDigest lib repo after master is synced.
-          # Returns 0 if submodule should be added to add_or_update[lang_code], 1 otherwise.
+          # Returns 0 if submodule should be added to add_or_update[lang_code]; 1 if skipped (open PR); 2 on git failure.
           process_local_branch() {
             local dest_repo="$1" sub_name="$2" lang_code="$3"
             local local_br="local-${lang_code}"
@@ -158,9 +164,9 @@ jobs:
                 echo "  Open translation PR found for $sub_name ($local_br), skipping." >&2
                 return 1
               fi
-              update_local_merge_from_master "$dest_repo" "$lang_code"
+              update_local_merge_from_master "$dest_repo" "$lang_code" || return 2
             else
-              ensure_local_branch_in_repo "$dest_repo" "$sub_name" "$lang_code"
+              ensure_local_branch_in_repo "$dest_repo" "$sub_name" "$lang_code" || return 2
             fi
             return 0
           }
@@ -171,18 +177,23 @@ jobs:
             local sub_name="$1" doc_paths
 
             if ! repo_exists "$MODULE_ORG" "$sub_name"; then
-              echo "  Skipping: $MODULE_ORG/$sub_name does not exist. Run add-submodules first." >&2
-              return 1
+              ORG_REPO_MISSING+=("$sub_name")
+              echo "  Error: $MODULE_ORG/$sub_name does not exist. Run add-submodules first." >&2
+              return 2
             fi
 
             doc_paths=$(get_doc_paths "$sub_name" "$LIBS_REF") || {
-              echo "  No libraries.json, skipping." >&2; return 1
+              META_MISSING+=("$sub_name")
+              echo "  No libraries.json." >&2; return 2
             }
-            [[ -z "$doc_paths" ]] && { echo "  No doc paths, skipping." >&2; return 1; }
+            [[ -z "$doc_paths" ]] && {
+              NO_DOC_PATHS+=("$sub_name")
+              echo "  No doc paths in metadata, skipping." >&2; return 1
+            }
 
             local sub_clone="$BOOST_WORK/$sub_name"
             clone_repo "https://github.com/${BOOST_ORG}/${sub_name}.git" \
-              "$LIBS_REF" "$sub_clone" || { echo "  Clone failed." >&2; return 1; }
+              "$LIBS_REF" "$sub_clone" || { echo "  Clone failed." >&2; return 2; }
 
             local -a paths_arr
             mapfile -t paths_arr <<< "$doc_paths"
@@ -191,10 +202,10 @@ jobs:
             local org_repo_url="https://github.com/${MODULE_ORG}/${sub_name}.git"
             local dest_repo="$ORG_WORK/$sub_name"
             clone_repo "$org_repo_url" "$MASTER_BRANCH" "$dest_repo" keep || {
-              echo "  clone_repo failed." >&2; return 1
+              echo "  clone_repo failed." >&2; return 2
             }
 
-            sync_repo_master "$dest_repo" "$sub_clone" "$LIBS_REF"
+            sync_repo_master "$dest_repo" "$sub_clone" "$LIBS_REF" || return 2
 
             local any_added=0
             for lang_code in "${lang_codes_arr[@]}"; do
@@ -205,6 +216,9 @@ jobs:
                   add_or_update["$lang_code"]="$sub_name"
                 fi
                 any_added=1
+              else
+                rc=$?
+                [[ $rc -eq 2 ]] && return 2
               fi
             done
             [[ $any_added -eq 1 ]]
@@ -335,13 +349,27 @@ jobs:
           # ── Step 2: process submodules ────────────────────────────────────────
 
           total=${#submodule_names[@]}
+          submodule_fatal=0
           for i in "${!submodule_names[@]}"; do
             sub="${submodule_names[$i]}"
             echo "[$(( i + 1 ))/$total] $sub ..." >&2
             if process_one_submodule "$sub"; then
               UPDATES+=("$sub")
+            else
+              rc=$?
+              [[ $rc -eq 2 ]] && submodule_fatal=$((submodule_fatal + 1))
             fi
           done
+
+          echo "── Summary: Boost library documentation metadata ──" >&2
+          echo "  Type 1 — Missing or unreadable meta/libraries.json (${#META_MISSING[@]}): $([[ ${#META_MISSING[@]} -eq 0 ]] && echo '(none)' || echo "${META_MISSING[*]}")" >&2
+          echo "  Type 2 — No doc paths in meta/libraries.json (${#NO_DOC_PATHS[@]}): $([[ ${#NO_DOC_PATHS[@]} -eq 0 ]] && echo '(none)' || echo "${NO_DOC_PATHS[*]}")" >&2
+          echo "  Type 3 — Lib repo missing in org (run add-submodules first) (${#ORG_REPO_MISSING[@]}): $([[ ${#ORG_REPO_MISSING[@]} -eq 0 ]] && echo '(none)' || echo "${ORG_REPO_MISSING[*]}")" >&2
+
+          [[ $submodule_fatal -gt 0 ]] && {
+            echo "Error: $submodule_fatal submodule(s) failed with errors." >&2
+            exit 1
+          }
 
           # ── Step 3: finalize TRANSLATIONS_REPO ───────────────────────────────
 

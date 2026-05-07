@@ -62,19 +62,19 @@ jobs:
             echo "── $branch ──────────────────────────────────────" >&2
             git fetch origin "$branch"
             git checkout -B "$branch" "origin/$branch"
-            git submodule update --init 2>/dev/null || true
+            git submodule update --init
 
             updated=0
             while IFS= read -r sub_path; do
               [[ -z "$sub_path" ]] && continue
-              [[ ! -d "$sub_path" ]] && continue
-              git config "submodule.${sub_path}.branch" "$branch"
-              git -C "$sub_path" fetch origin \
-                "refs/heads/${branch}:refs/remotes/origin/${branch}" 2>/dev/null || true
-              if ! git submodule update --remote "$sub_path"; then
-                echo "  Skipping $sub_path: update --remote failed (no branch $branch?)" >&2
+              if [[ ! -d "$sub_path" ]]; then
+                echo "  Warning: submodule path missing after init, skipping: $sub_path" >&2
                 continue
               fi
+              git config "submodule.${sub_path}.branch" "$branch"
+              git -C "$sub_path" fetch origin \
+                "refs/heads/${branch}:refs/remotes/origin/${branch}"
+              git submodule update --remote "$sub_path"
               git add "$sub_path"
               echo "  Updated $sub_path -> $(git -C "$sub_path" rev-parse --short HEAD)" >&2
               updated=1
