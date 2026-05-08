@@ -28,7 +28,10 @@ HTTP surfaces are described in **[`docs/endpoint-contract.md`](docs/endpoint-con
 **Trigger:** `repository_dispatch` with `event_type: add-submodules`
 
 ```json
-{"event_type": "add-submodules", "client_payload": {"version": "boost-1.90.0"}}
+{
+  "event_type": "add-submodules",
+  "client_payload": { "version": "boost-1.90.0" }
+}
 ```
 
 For each Boost library name in the resolved list:
@@ -43,11 +46,11 @@ For each Boost library name in the resolved list:
 4. Updates submodule links in this repo under **`libs/`** on **`master`** and each
    **`local-{lang_code}`** branch.
 
-| `client_payload` field | Required | Description |
-|---|---|---|
-| `version` | no | Boost ref (e.g. `boost-1.90.0`). Defaults to `develop`. |
-| `submodules` | no | List-like string (e.g. `[algorithm, system]`). If omitted, submodule names are taken from **`.gitmodules` on `boostorg/boost`** at **`version`** (only `libs/` paths). |
-| `lang_codes` | no | Comma-separated language codes (e.g. `zh_Hans,ja`). Defaults to **`vars.LANG_CODES`**; the workflow fails if neither this field nor **`LANG_CODES`** is set. |
+| `client_payload` field | Required | Description                                                                                                                                                            |
+| ---------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`              | no       | Boost ref (e.g. `boost-1.90.0`). Defaults to `develop`.                                                                                                                |
+| `submodules`           | no       | List-like string (e.g. `[algorithm, system]`). If omitted, submodule names are taken from **`.gitmodules` on `boostorg/boost`** at **`version`** (only `libs/` paths). |
+| `lang_codes`           | no       | Comma-separated language codes (e.g. `zh_Hans,ja`). Defaults to **`vars.LANG_CODES`**; the workflow fails if neither this field nor **`LANG_CODES`** is set.           |
 
 ---
 
@@ -56,7 +59,10 @@ For each Boost library name in the resolved list:
 **Trigger:** `repository_dispatch` with `event_type: start-translation`
 
 ```json
-{"event_type": "start-translation", "client_payload": {"version": "boost-1.90.0"}}
+{
+  "event_type": "start-translation",
+  "client_payload": { "version": "boost-1.90.0" }
+}
 ```
 
 Reads the submodule list from **this repo’s `.gitmodules`** on **`master`** (only
@@ -77,11 +83,11 @@ Reads the submodule list from **this repo’s `.gitmodules`** on **`master`** (o
    actually updated for that language. Omits the call if the map would be empty.
    A typical server response is **HTTP 202** (async); **200** is also accepted.
 
-| `client_payload` field | Required | Description |
-|---|---|---|
-| `version` | no | Boost ref (e.g. `boost-1.90.0`). Defaults to `develop`. |
-| `lang_codes` | no | Comma-separated language codes (e.g. `zh_Hans,ja`). Defaults to **`vars.LANG_CODES`**; the workflow fails if neither this field nor **`LANG_CODES`** is set. |
-| `extensions` | no | File extensions for Weblate (e.g. `[.adoc, .md]`). Default: empty (no filter in the payload). |
+| `client_payload` field | Required | Description                                                                                                                                                  |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `version`              | no       | Boost ref (e.g. `boost-1.90.0`). Defaults to `develop`.                                                                                                      |
+| `lang_codes`           | no       | Comma-separated language codes (e.g. `zh_Hans,ja`). Defaults to **`vars.LANG_CODES`**; the workflow fails if neither this field nor **`LANG_CODES`** is set. |
+| `extensions`           | no       | File extensions for Weblate (e.g. `[.adoc, .md]`). Default: empty (no filter in the payload).                                                                |
 
 ---
 
@@ -90,7 +96,7 @@ Reads the submodule list from **this repo’s `.gitmodules`** on **`master`** (o
 **Trigger:** `repository_dispatch` with `event_type: sync-translation`, or daily schedule (`0 0 * * *`)
 
 ```json
-{"event_type": "sync-translation"}
+{ "event_type": "sync-translation" }
 ```
 
 Discovers all remote **`local-*`** branches in this repo, then for each one: checks
@@ -141,18 +147,18 @@ documented below.
 
 ## Required secrets
 
-| Secret | Used by | Description |
-|---|---|---|
-| `SYNC_TOKEN` | all workflows | PAT with **`repo`** scope; **`add-submodules`** also needs permission to create org repositories when creating new mirrors. |
-| `WEBLATE_URL` | `start-translation` | Base URL of the Weblate instance (the workflow appends **`boost-endpoint/add-or-update/`**). |
-| `WEBLATE_TOKEN` | `start-translation` | API token for that endpoint. |
+| Secret          | Used by             | Description                                                                                                                 |
+| --------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `SYNC_TOKEN`    | all workflows       | PAT with **`repo`** scope; **`add-submodules`** also needs permission to create org repositories when creating new mirrors. |
+| `WEBLATE_URL`   | `start-translation` | Base URL of the Weblate instance (the workflow appends **`boost-endpoint/add-or-update/`**).                                |
+| `WEBLATE_TOKEN` | `start-translation` | API token for that endpoint.                                                                                                |
 
 ## Repository variables
 
-| Variable | Used by | Description |
-|---|---|---|
-| `LANG_CODES` | `add-submodules`, `start-translation` | Default language codes when **`client_payload.lang_codes`** is omitted (comma- or bracket-list, e.g. `zh_Hans,ja`). Must be set here or passed in the dispatch payload. |
-| `SUBMODULES_ORG` | `add-submodules`, `start-translation` | Optional. GitHub org for **`boostorg`** mirror repos (e.g. `cppalliance`). If unset, the org is the same as this repository’s owner. **`sync-translation`** relies on **`.gitmodules`** URLs already pointing at the correct hosts. |
+| Variable         | Used by                               | Description                                                                                                                                                                                                                       |
+| ---------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LANG_CODES`     | `add-submodules`, `start-translation` | Default language codes when **`client_payload.lang_codes`** is omitted (comma- or bracket-list, e.g. `zh_Hans,ja`). Must be set here or passed in the dispatch payload.                                                           |
+| `SUBMODULES_ORG` | `add-submodules`, `start-translation` | Optional. GitHub org for **`boostorg`** mirror repos (e.g. `CppDigest`). If unset, the org is the same as this repository’s owner. **`sync-translation`** relies on **`.gitmodules`** URLs already pointing at the correct hosts. |
 
 ## License
 

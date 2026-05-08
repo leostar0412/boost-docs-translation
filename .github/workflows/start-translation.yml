@@ -21,7 +21,7 @@
 #
 # Required secrets: SYNC_TOKEN, WEBLATE_URL, WEBLATE_TOKEN.
 #   SYNC_TOKEN: push/PR access in MODULE_ORG. Repository variable SUBMODULES_ORG: org for
-#   library repos (e.g. cppalliance). If unset, MODULE_ORG is this repo's org.
+#   library repos (e.g. CppDigest). If unset, MODULE_ORG is this repo's org.
 # Optional: LANG_CODES (used when lang_codes not in client_payload).
 
 name: Start translation
@@ -386,4 +386,3 @@ jobs:
           trigger_weblate "$WEBLATE_URL" "$WEBLATE_TOKEN" "$LIBS_REF" "$exts_json"
 
           echo "Done." >&2
-

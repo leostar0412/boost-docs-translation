@@ -1,6 +1,6 @@
 # Workflow Assets
 
-This folder contains workflow template files that are copied into individual **cppalliance**
+This folder contains workflow template files that are copied into individual **CppDigest**
 (or other **`MODULE_ORG`**) Boost library documentation mirror repositories.
 
 ## create-tag.yml

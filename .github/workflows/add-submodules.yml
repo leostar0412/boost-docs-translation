@@ -11,7 +11,7 @@
 #   lang_codes: (optional) Language code for Weblate (e.g. zh_Hans). Defaults to vars.LANG_CODES.
 #
 # Required secret: SYNC_TOKEN — PAT with repo and org create/push in MODULE_ORG.
-#   Repository variable SUBMODULES_ORG: GitHub org for library repos (e.g. cppalliance). If unset, MODULE_ORG is this repo's org.
+#   Repository variable SUBMODULES_ORG: GitHub org for library repos (e.g. CppDigest). If unset, MODULE_ORG is this repo's org.
 # Optional: LANG_CODES.
 
 name: Add submodules
